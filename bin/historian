@@ -1,0 +1,64 @@
+#!/usr/bin/env ruby
+
+require 'date'
+require 'colorize'
+require 'optparse'
+require_relative '../lib/historian'
+
+#
+# parse options
+#
+options = {
+  date: nil,
+  verbose: false,
+  colorize: true
+}
+
+OptionParser
+  .new("Usage: #{$0} [options] [<host> [<host> ...]]")
+  .on('-d', '--date=<string>', 'Date in to collect histories') { |v| options[:date] = v }
+  .on('-v', '--verbose', 'Print detailed progress messages') { |v| options[:verbose] = v }
+  .on('--no-color', 'Do not color result text') { |v| options[:colorize] = v }
+  .parse!(ARGV)
+
+#
+# define parameters
+#
+range = options[:date] ? {
+  start: Date.parse(options[:date]).to_time,
+  finish: Date.parse(options[:date]).next_day.to_time
+} : {}
+
+verbose = options[:verbose]
+template = options[:colorize] ? '[%{chost}] (%{ctime}) %{cmd}' : '[%{host}] (%{time}) %{cmd}'
+
+#
+# define hosts
+#
+hosts = ARGV
+
+if hosts.empty?
+  # select remote hosts from command histories when no hosts specified
+  Historian::Collector.new(verbose: false).collect(range).sort.each do |history|
+    hosts.push(Historian::Util.ssh_host(history))
+  end
+
+  hosts = hosts.compact.uniq
+end
+
+if hosts.empty?
+  # abort when no hosts found to collect history
+  abort('No servers found to collect history'.colorize(:red))
+end
+
+#
+# collect histories
+#
+collector = Historian::Collector.new(hosts: hosts, verbose: verbose)
+formatter = Historian::Formatter.new(hosts: hosts, template: template)
+
+collector.collect(range).sort.each do |history|
+  STDOUT.puts formatter.format(history)
+end
+
+# vim: ft=ruby sw=2 ts=2 sts=2
